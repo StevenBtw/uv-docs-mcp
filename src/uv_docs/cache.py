@@ -229,18 +229,19 @@ class CacheManager:
                 html = await response.text()
                 soup = BeautifulSoup(html, 'html.parser')
                 content = soup.select_one('.md-content')
-                
+
                 if not content:
                     return {}
 
                 elements = []
                 for section in content.find_all('h2'):
                     setting_name = self.clean_text(section.get_text(strip=True))
-                    description = self.clean_text(section.find_next('p').get_text(strip=True) 
-                                            if section.find_next('p') else "")
+                    description = self.clean_text(
+                        section.find_next('p').get_text(strip=True) if section.find_next('p') else ""
+                    )
 
                     documentation = []
-                    current_subsection: DocumentationSection | None = None
+                    current_subsection: Dict[str, Any] | None = None
                     general_content = []
 
                     next_elem = section.find_next_sibling()
@@ -256,12 +257,22 @@ class CacheManager:
                             }
                             documentation.append(current_subsection)
 
-                        elif next_elem.name in ['p', 'pre', 'ul', 'ol']:
+                        elif next_elem.name in ['p', 'ul', 'ol']:
                             text = self.clean_text(next_elem.get_text(strip=True))
                             if current_subsection:
                                 current_subsection["content"].append(text)
                             else:
                                 general_content.append(text)
+
+                        elif next_elem.name == "div" and "highlight" in next_elem.get("class", []):
+                            # Extract example from code block
+                            pre_tag = next_elem.find("pre")
+                            if pre_tag:
+                                example_text = self.clean_text(pre_tag.get_text("\n", strip=True))
+                                if current_subsection:
+                                    current_subsection["content"].append(f"Example:\n{example_text}")
+                                else:
+                                    general_content.append(f"Example:\n{example_text}")
 
                         next_elem = next_elem.find_next_sibling()
 
@@ -281,6 +292,7 @@ class CacheManager:
                     "section": "settings",
                     "elements": elements
                 }
+
 
     async def fetch_resolver_documentation(self) -> Dict[str, Any]:
         """Fetch resolver documentation from the website."""
