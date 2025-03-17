@@ -7,7 +7,8 @@ import mcp.server.stdio
 
 from .resources import list_resources, read_resource
 from .prompts import list_prompts, get_prompt
-from .tools import list_tools, call_tool
+from .tools import list_all_tools, call_tool
+from .cache import cache_manager
 
 server = Server("uv-docs")
 
@@ -29,13 +30,17 @@ async def handle_get_prompt(name: str, arguments: dict[str, str] | None):
 
 @server.list_tools()
 async def handle_list_tools() -> list:
-    return await list_tools()
+    return await list_all_tools()
 
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: dict | None):
     return await call_tool(name, arguments, server)
 
 async def main():
+    # Initialize cache before starting server
+    print("Initializing documentation cache...")
+    await cache_manager.initialize()
+    
     # Run the server using stdin/stdout streams
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(

@@ -1,5 +1,5 @@
 from mcp.types import Prompt, PromptArgument, GetPromptResult, PromptMessage, TextContent
-from .resources import notes
+from .resources import DOCUMENTATION_SECTIONS
 
 async def list_prompts() -> list[Prompt]:
     """
@@ -8,12 +8,12 @@ async def list_prompts() -> list[Prompt]:
     """
     return [
         Prompt(
-            name="summarize-notes",
-            description="Creates a summary of all notes",
+            name="summarize-docs",
+            description="Creates a summary of UV documentation sections",
             arguments=[
                 PromptArgument(
-                    name="style",
-                    description="Style of the summary (brief/detailed)",
+                    name="section",
+                    description="Documentation section to summarize",
                     required=False,
                 )
             ],
@@ -23,26 +23,24 @@ async def list_prompts() -> list[Prompt]:
 async def get_prompt(name: str, arguments: dict[str, str] | None) -> GetPromptResult:
     """
     Generate a prompt by combining arguments with server state.
-    The prompt includes all current notes and can be customized via arguments.
+    The prompt includes documentation sections with optional filtering.
     """
-    if name != "summarize-notes":
+    if name != "summarize-docs":
         raise ValueError(f"Unknown prompt: {name}")
 
-    style = (arguments or {}).get("style", "brief")
-    detail_prompt = " Give extensive details." if style == "detailed" else ""
+    section = (arguments or {}).get("section")
+    sections_to_summarize = [section] if section in DOCUMENTATION_SECTIONS else DOCUMENTATION_SECTIONS
 
     return GetPromptResult(
-        description="Summarize the current notes",
+        description="Summarize UV documentation sections",
         messages=[
             PromptMessage(
                 role="user",
                 content=TextContent(
                     type="text",
-                    text=f"Here are the current notes to summarize:{detail_prompt}\n\n"
-                    + "\n".join(
-                        f"- {name}: {content}"
-                        for name, content in notes.items()
-                    ),
+                    text=f"Please summarize the following UV documentation sections: {', '.join(sections_to_summarize)}\n\n"
+                    "Sections available:\n" +
+                    "\n".join(f"- {section}" for section in sections_to_summarize)
                 ),
             )
         ],
