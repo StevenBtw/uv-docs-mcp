@@ -12,3 +12,4 @@ wheels/
 
 .clinerules
 memory-bank/*
+src/.DS_Store

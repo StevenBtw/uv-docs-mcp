@@ -1,208 +1,127 @@
 import json
 from pydantic import AnyUrl
 from mcp.types import Resource
-
 from .cache import cache_manager
 
-# Top-level documentation sections
 DOCUMENTATION_SECTIONS = ["cli", "settings", "resolver"]
 
-# Default elements for each section
-DEFAULT_SECTION_ELEMENTS = {
-    "cli": [
-        "uv",
-        "uv-run",
-        "uv-init",
-        "uv-add",
-        "uv-remove",
-        "uv-sync",
-        "uv-lock",
-        "uv-export",
-        "uv-tree",
-        "uv-tool",
-        "uv-python",
-        "uv-pip",
-        "uv-venv",
-        "uv-build",
-        "uv-publish",
-        "uv-cache",
-        "uv-self",
-        "uv-version",
-        "uv-generate-shell-completion",
-        "uv-pip-show",
-        "uv-pip-tree", 
-        "uv-pip-check",
-        "uv-cache-clean",
-        "uv-cache-prune",
-        "uv-cache-dir",
-        "uv-self-update",
-        "uv-help"
-    ],
-    "settings": [
-        "build-constraint-dependencies",
-        "conflicts",
-        "constraint-dependencies",
-        "default-groups",
-        "dev-dependencies",
-        "environments",
-        "index",
-        "managed",
-        "override-dependencies",
-        "package",
-        "required-environments",
-        "sources",
-        "workspace",
-        "exclude",
-        "members",
-        "allow-insecure-host",
-        "cache-dir",
-        "cache-keys",
-        "check-url",
-        "compile-bytecode",
-        "concurrent-builds",
-        "concurrent-downloads",
-        "concurrent-installs",
-        "config-settings",
-        "dependency-metadata",
-        "exclude-newer",
-        "extra-index-url",
-        "find-links",
-        "fork-strategy",
-        "index",
-        "index-strategy",
-        "index-url",
-        "keyring-provider",
-        "link-mode",
-        "native-tls",
-        "no-binary",
-        "no-binary-package",
-        "no-build",
-        "no-build-isolation",
-        "no-build-isolation-package",
-        "no-build-package",
-        "no-cache",
-        "no-index",
-        "no-sources",
-        "offline",
-        "prerelease",
-        "preview",
-        "publish-url",
-        "pypy-install-mirror",
-        "python-downloads",
-        "python-install-mirror",
-        "python-preference",
-        "reinstall",
-        "reinstall-package",
-        "required-version",
-        "resolution",
-        "trusted-publishing",
-        "upgrade",
-        "upgrade-package",
-        "pip",
-        "pip-all-extras",
-        "pip-allow-empty-requirements",
-        "pip-annotation-style",
-        "pip-break-system-packages",
-        "pip-compile-bytecode",
-        "pip-config-settings",
-        "pip-custom-compile-command",
-        "pip-dependency-metadata",
-        "pip-emit-build-options",
-        "pip-emit-find-links",
-        "pip-emit-index-annotation",
-        "pip-emit-index-url",
-        "pip-emit-marker-expression",
-        "pip-exclude-newer",
-        "pip-extra",
-        "pip-extra-index-url",
-        "pip-find-links",
-        "pip-fork-strategy",
-        "pip-generate-hashes",
-        "pip-group",
-        "pip-index-strategy",
-        "pip-index-url",
-        "pip-keyring-provider",
-        "pip-link-mode",
-        "pip-no-annotate",
-        "pip-no-binary",
-        "pip-no-build",
-        "pip-no-build-isolation",
-        "pip-no-build-isolation-package",
-        "pip-no-deps",
-        "pip-no-emit-package",
-        "pip-no-extra",
-        "pip-no-header",
-        "pip-no-index",
-        "pip-no-sources",
-        "pip-no-strip-extras",
-        "pip-no-strip-markers",
-        "pip-only-binary",
-        "pip-output-file",
-        "pip-prefix",
-        "pip-prerelease",
-        "pip-python",
-        "pip-python-platform",
-        "pip-python-version",
-        "pip-reinstall",
-        "pip-reinstall-package",
-        "pip-require-hashes",
-        "pip-resolution",
-        "pip-strict",
-        "pip-system",
-        "pip-target",
-        "pip-universal",
-        "pip-upgrade",
-        "pip-upgrade-package",
-        "pip-verify-hashes"
-    ],
-    "resolver": [
-        "resolver",
-        "forking",
-        "wheel-tags",
-        "marker-and-wheel-tag-filtering",
-        "requires-python",
-        "prioritization"
-    ]
-}
-
 async def list_resources() -> list[Resource]:
-    """List available documentation resources."""
+    """List all available documentation sections and their nested resources."""
     resources = []
+    
+    # Get base sections
     for section in DOCUMENTATION_SECTIONS:
-        resource = Resource(
-            uri=AnyUrl(f"uv-docs://{section}"),
-            name=f"UV {section.title()} Documentation",
-            description=f"Documentation for UV's {section} functionality",
-            mimeType="application/json; charset=utf-8",
+        resources.append(
+            Resource(
+                uri=AnyUrl(f"uv-docs://{section}"),
+                name=f"UV {section.title()} Documentation",
+                description=f"Documentation for UV's {section} functionality",
+                mimeType="application/json; charset=utf-8",
+            )
         )
-        resources.append(resource)
+        
+        # Add commands and their subsections as resources
+        cached_content = await cache_manager.get_cached_section(section)
+        if cached_content and "elements" in cached_content:
+            for element in cached_content["elements"]:
+                cmd_uri = element["name"].lower().replace(" ", "-")
+                resources.append(
+                    Resource(
+                        uri=AnyUrl(f"uv-docs://{section}/{cmd_uri}"),
+                        name=element["name"],
+                        description=element["description"],
+                        mimeType="application/json; charset=utf-8",
+                    )
+                )
+                
+                # Add command subsections as resources
+                if "documentation" in element:
+                    for doc_section in element["documentation"]:
+                        section_uri = doc_section["title"].lower().replace(" ", "-")
+                        resources.append(
+                            Resource(
+                                uri=AnyUrl(f"uv-docs://{section}/{cmd_uri}/{section_uri}"),
+                                name=f"{element['name']} - {doc_section['title']}",
+                                description=f"{doc_section['title']} documentation for {element['name']}",
+                                mimeType="application/json; charset=utf-8",
+                            )
+                        )
+    
     return resources
 
 async def read_resource(uri: AnyUrl) -> str:
-    """Read a documentation section by its URI."""
+    """Retrieve documentation dynamically from cache, supporting hierarchical lookups."""
     if uri.scheme != "uv-docs":
         raise ValueError(f"Unsupported URI scheme: {uri.scheme}")
 
-    section = uri.host
-    if section not in DOCUMENTATION_SECTIONS:
-        raise ValueError(f"Unknown documentation section: {section}")
+    # Parse the path parts
+    parts = uri.host.split("/") if uri.host else []
+    if uri.path and uri.path != "/":
+        parts.extend(p for p in uri.path[1:].split("/") if p)
 
-    # Return cached content if available
+    if not parts:
+        raise ValueError("Invalid resource path")
+
+    section = parts[0]
     cached_content = await cache_manager.get_cached_section(section)
-    if cached_content:
-        return json.dumps(cached_content, indent=2)
+    if not cached_content:
+        raise FileNotFoundError(f"Cache for '{section}' not found or empty.")
 
-    # Fall back to default section listing
-    default_content = {
-        "type": "documentation_section",
-        "section": section,
-        "elements": []
-    }
+    # Level 1: Base section - return list of commands
+    if len(parts) == 1:
+        return json.dumps({
+            "type": "section",
+            "name": section,
+            "commands": [
+                {
+                    "name": el["name"],
+                    "description": el["description"],
+                    "uri": f"uv-docs://{section}/{el['name'].lower().replace(' ', '-')}"
+                }
+                for el in cached_content.get("elements", [])
+            ]
+        }, indent=2)
 
-    for element in DEFAULT_SECTION_ELEMENTS[section]:
-        default_content["elements"].append({
-            "name": element,
-            "description": f"Documentation for {element}"
-        })
+    # Level 2/3: Command-specific documentation
+    cmd_name = parts[1].replace("-", " ")
+    if section == "cli":
+        if not cmd_name.startswith("uv "):
+            cmd_name = f"uv {cmd_name}"
 
-    return json.dumps(default_content, indent=2)
+    # Find the requested command
+    command = None
+    for element in cached_content.get("elements", []):
+        if element["name"].lower() == cmd_name.lower():
+            command = element
+            break
+
+    if not command:
+        raise ValueError(f"Command '{cmd_name}' not found")
+
+    # Level 2: Return command metadata and available sections
+    if len(parts) == 2:
+        return json.dumps({
+            "type": "command",
+            "name": command["name"],
+            "description": command["description"],
+            "sections": [
+                {
+                    "title": section["title"],
+                    "uri": f"uv-docs://{parts[0]}/{parts[1]}/{section['title'].lower().replace(' ', '-')}"
+                }
+                for section in command.get("documentation", [])
+            ]
+        }, indent=2)
+
+    # Level 3: Return specific section of command documentation
+    subsection = parts[2].replace("-", " ")
+    for doc_section in command.get("documentation", []):
+        if doc_section["title"].lower() == subsection.lower():
+            return json.dumps({
+                "type": "section",
+                "command": command["name"],
+                "section": doc_section["title"],
+                "content": doc_section.get("content", [])
+            }, indent=2)
+
+    raise ValueError(f"Section '{subsection}' not found in command '{cmd_name}'")

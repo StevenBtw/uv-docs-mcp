@@ -258,6 +258,12 @@ class CacheManager:
                     current_subsection: Optional[SubSection] = None
                     general_content = []
 
+                    def create_subsection(title: str) -> SubSection:
+                        return {
+                            "title": title,
+                            "content": []
+                        }
+
                     next_elem = section.find_next_sibling()
                     while next_elem and next_elem.name != 'h2':
                         if next_elem.name in ['h3', 'h4']:
@@ -265,10 +271,7 @@ class CacheManager:
                                 documentation.append({"title": "General", "content": general_content})
                                 general_content = []
 
-                            current_subsection = {
-                                "title": self.clean_text(next_elem.get_text(strip=True)),
-                                "content": []
-                            }
+                            current_subsection = create_subsection(self.clean_text(next_elem.get_text(strip=True)))
                             documentation.append(current_subsection)
 
                         elif next_elem.name in ['p', 'ul', 'ol']:
@@ -347,6 +350,12 @@ class CacheManager:
                     current_subsection: Optional[SubSection] = None
                     general_content = []
 
+                    def create_subsection(title: str) -> SubSection:
+                        return {
+                            "title": title,
+                            "content": []
+                        }
+
                     next_elem = section.find_next_sibling()
                     while next_elem and next_elem.name != 'h2':
                         if next_elem.name in ['h3', 'h4']:
@@ -354,10 +363,7 @@ class CacheManager:
                                 documentation.append({"title": "General", "content": general_content})
                                 general_content = []
 
-                            current_subsection = {
-                                "title": self.clean_text(next_elem.get_text(strip=True)),
-                                "content": []
-                            }
+                            current_subsection = create_subsection(self.clean_text(next_elem.get_text(strip=True)))
                             documentation.append(current_subsection)
 
                         elif next_elem.name in ['p', 'ul', 'ol']:
