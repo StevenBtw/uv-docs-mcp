@@ -1,5 +1,6 @@
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 from mcp.server import Server
+from ..cache import cache_manager
 
 async def list_doc_tools() -> list[Tool]:
     """
@@ -44,10 +45,37 @@ async def call_doc_tool(
     section = arguments["section"]
     element = arguments["element"]
 
-    # Placeholder: In real implementation, this would fetch documentation content
-    return [
-        TextContent(
-            type="text",
-            text=f"Documentation for {section} element '{element}' would be returned here",
-        )
-    ]
+    # Get cached documentation for the section
+    section_docs = await cache_manager.get_cached_section(section)
+    
+    if not section_docs or "elements" not in section_docs:
+        return [
+            TextContent(
+                type="text",
+                text=f"No documentation found for section: {section}",
+            )
+        ]
+
+    # Find the requested element
+    element_doc = next(
+        (e for e in section_docs["elements"] if e["name"].lower() == element.lower()),
+        None
+    )
+
+    if not element_doc:
+        return [
+            TextContent(
+                type="text",
+                text=f"No documentation found for element '{element}' in section '{section}'",
+            )
+        ]
+
+    # Format documentation content
+    content = [f"# {element_doc['name']}\n"]
+    content.append(f"{element_doc['description']}\n")
+
+    for section in element_doc["documentation"]:
+        content.append(f"\n## {section['title']}")
+        content.extend([f"\n{line}" for line in section["content"]])
+
+    return [TextContent(type="text", text="\n".join(content))]
