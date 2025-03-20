@@ -5,11 +5,17 @@ from pathlib import Path
 import aiofiles
 import aiohttp
 from bs4 import BeautifulSoup
-from typing import Any, Dict, Tuple, TypedDict
+from typing import Any, Dict, List, TypedDict, Optional
 
 class DocumentationSection(TypedDict):
     title: str
-    content: list[str]
+    content: List[str]
+    
+class SubSection(TypedDict):
+    title: str
+    content: List[str]
+
+DocumentationType = List[SubSection]
 
 class CacheManager:
     """Manages UV documentation cache storage and retrieval."""
@@ -143,7 +149,15 @@ class CacheManager:
             '\t': ' '       # Tab
         }
         for old, new in replacements.items():
-            text = text.replace(old, new)
+            if old in text:
+                text = text.replace(old, new)
+        text = ' '.join(text.split())  # Normalize multiple spaces
+        return text.strip()
+
+    def clean_code(self, text: str) -> str:
+        """Clean code text while preserving newlines and indentation."""
+        text = unicodedata.normalize("NFKC", text)  # Normalize Unicode characters
+        text = text.replace('\t', '    ')  # Convert tabs to spaces
         return text.strip()
 
     async def fetch_cli_documentation(self) -> Dict[str, Any]:
@@ -165,7 +179,7 @@ class CacheManager:
 
                     # Initialize documentation as a structured list
                     documentation = []
-                    current_subsection: DocumentationSection | None = None
+                    current_subsection: Optional[SubSection] = None
                     general_content = []
                     options_content = []
 
@@ -187,7 +201,7 @@ class CacheManager:
                         elif next_elem.name in ['p', 'pre', 'ul', 'ol']:
                             text = self.clean_text(next_elem.get_text(strip=True))
                             if current_subsection:
-                                current_subsection["content"].append(text)
+                                current_subsection.setdefault("content", []).append(text)
                             else:
                                 general_content.append(text)
 
@@ -229,19 +243,26 @@ class CacheManager:
                 html = await response.text()
                 soup = BeautifulSoup(html, 'html.parser')
                 content = soup.select_one('.md-content')
-                
+
                 if not content:
                     return {}
 
                 elements = []
                 for section in content.find_all('h2'):
                     setting_name = self.clean_text(section.get_text(strip=True))
-                    description = self.clean_text(section.find_next('p').get_text(strip=True) 
-                                            if section.find_next('p') else "")
+                    description = self.clean_text(
+                        section.find_next('p').get_text(strip=True) if section.find_next('p') else ""
+                    )
 
                     documentation = []
-                    current_subsection: DocumentationSection | None = None
+                    current_subsection: Optional[SubSection] = None
                     general_content = []
+
+                    def create_subsection(title: str) -> SubSection:
+                        return {
+                            "title": title,
+                            "content": []
+                        }
 
                     next_elem = section.find_next_sibling()
                     while next_elem and next_elem.name != 'h2':
@@ -250,18 +271,25 @@ class CacheManager:
                                 documentation.append({"title": "General", "content": general_content})
                                 general_content = []
 
-                            current_subsection = {
-                                "title": self.clean_text(next_elem.get_text(strip=True)),
-                                "content": []
-                            }
+                            current_subsection = create_subsection(self.clean_text(next_elem.get_text(strip=True)))
                             documentation.append(current_subsection)
 
-                        elif next_elem.name in ['p', 'pre', 'ul', 'ol']:
+                        elif next_elem.name in ['p', 'ul', 'ol']:
                             text = self.clean_text(next_elem.get_text(strip=True))
                             if current_subsection:
                                 current_subsection["content"].append(text)
                             else:
                                 general_content.append(text)
+
+                        elif next_elem.name == "div" and any(c in next_elem.get("class", []) for c in ["highlight", "highlight-default"]):
+                            # Extract example from code block
+                            pre_tag = next_elem.find("pre")
+                            if pre_tag:
+                                example_text = self.clean_code(pre_tag.get_text("\n", strip=True))
+                                if current_subsection is not None:
+                                    current_subsection["content"].append(f"Example:\n{example_text}")
+                                else:
+                                    general_content.append(f"Example:\n{example_text}")
 
                         next_elem = next_elem.find_next_sibling()
 
@@ -285,23 +313,48 @@ class CacheManager:
     async def fetch_resolver_documentation(self) -> Dict[str, Any]:
         """Fetch resolver documentation from the website."""
         async with aiohttp.ClientSession() as session:
-            async with session.get('https://docs.astral.sh/uv/reference/resolver/') as response:
+            async with session.get('https://docs.astral.sh/uv/reference/resolver-internals/') as response:
                 html = await response.text()
                 soup = BeautifulSoup(html, 'html.parser')
+
+                # Ensure we are selecting the correct container
                 content = soup.select_one('.md-content')
-                
+
                 if not content:
                     return {}
 
                 elements = []
-                for section in content.find_all('h2'):
+                sections = content.find_all('h2')
+
+                if not sections:
+                    return {}
+                for section in sections:
                     resolver_name = self.clean_text(section.get_text(strip=True))
-                    description = self.clean_text(section.find_next('p').get_text(strip=True) 
-                                            if section.find_next('p') else "")
+
+                    # Try to get the description (handle cases where it's inside .admonition)
+                    description = ""
+                    description_elem = section.find_next_sibling()
+
+                    # Look for description in all content until next h2
+                    while description_elem and description_elem.name not in ['h2', 'h3', 'h4']:
+                        if description_elem.name == "p":
+                            description += " " + self.clean_text(description_elem.get_text(strip=True))
+                        elif description_elem.name == "div" and "admonition" in description_elem.get("class", []):
+                            description += " " + self.clean_text(description_elem.get_text(strip=True))
+                        elif description_elem.name in ['ul', 'ol']:  # Handle bullet lists
+                            for li in description_elem.find_all('li'):
+                                description += "\n- " + self.clean_text(li.get_text(strip=True))
+                        description_elem = description_elem.find_next_sibling()
 
                     documentation = []
-                    current_subsection: DocumentationSection | None = None
+                    current_subsection: Optional[SubSection] = None
                     general_content = []
+
+                    def create_subsection(title: str) -> SubSection:
+                        return {
+                            "title": title,
+                            "content": []
+                        }
 
                     next_elem = section.find_next_sibling()
                     while next_elem and next_elem.name != 'h2':
@@ -310,18 +363,25 @@ class CacheManager:
                                 documentation.append({"title": "General", "content": general_content})
                                 general_content = []
 
-                            current_subsection = {
-                                "title": self.clean_text(next_elem.get_text(strip=True)),
-                                "content": []
-                            }
+                            current_subsection = create_subsection(self.clean_text(next_elem.get_text(strip=True)))
                             documentation.append(current_subsection)
 
-                        elif next_elem.name in ['p', 'pre', 'ul', 'ol']:
+                        elif next_elem.name in ['p', 'ul', 'ol']:
                             text = self.clean_text(next_elem.get_text(strip=True))
                             if current_subsection:
                                 current_subsection["content"].append(text)
                             else:
                                 general_content.append(text)
+
+                        elif next_elem.name == "div" and any(c in next_elem.get("class", []) for c in ["highlight", "highlight-default"]):
+                            # Extract example from code block
+                            pre_tag = next_elem.find("pre")
+                            if pre_tag:
+                                example_text = self.clean_code(pre_tag.get_text("\n", strip=True))
+                                if current_subsection is not None:
+                                    current_subsection["content"].append(f"Example:\n{example_text}")
+                                else:
+                                    general_content.append(f"Example:\n{example_text}")
 
                         next_elem = next_elem.find_next_sibling()
 
@@ -332,9 +392,10 @@ class CacheManager:
 
                     elements.append({
                         "name": resolver_name,
-                        "description": description,
+                        "description": description.strip(),
                         "documentation": documentation
                     })
+
 
                 return {
                     "type": "documentation_section",

@@ -7,7 +7,7 @@ import mcp.server.stdio
 
 from .resources import list_resources, read_resource
 from .prompts import list_prompts, get_prompt
-from .tools import list_all_tools, call_tool
+from .tools import list_tools, call_tool
 from .cache import cache_manager
 
 server = Server("uv-docs")
@@ -30,7 +30,7 @@ async def handle_get_prompt(name: str, arguments: dict[str, str] | None):
 
 @server.list_tools()
 async def handle_list_tools() -> list:
-    return await list_all_tools()
+    return await list_tools()
 
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: dict | None):
