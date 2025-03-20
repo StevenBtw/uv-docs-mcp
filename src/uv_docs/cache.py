@@ -5,11 +5,17 @@ from pathlib import Path
 import aiofiles
 import aiohttp
 from bs4 import BeautifulSoup
-from typing import Any, Dict, Tuple, TypedDict
+from typing import Any, Dict, List, TypedDict, Optional
 
 class DocumentationSection(TypedDict):
     title: str
-    content: list[str]
+    content: List[str]
+    
+class SubSection(TypedDict):
+    title: str
+    content: List[str]
+
+DocumentationType = List[SubSection]
 
 class CacheManager:
     """Manages UV documentation cache storage and retrieval."""
@@ -143,7 +149,15 @@ class CacheManager:
             '\t': ' '       # Tab
         }
         for old, new in replacements.items():
-            text = text.replace(old, new)
+            if old in text:
+                text = text.replace(old, new)
+        text = ' '.join(text.split())  # Normalize multiple spaces
+        return text.strip()
+
+    def clean_code(self, text: str) -> str:
+        """Clean code text while preserving newlines and indentation."""
+        text = unicodedata.normalize("NFKC", text)  # Normalize Unicode characters
+        text = text.replace('\t', '    ')  # Convert tabs to spaces
         return text.strip()
 
     async def fetch_cli_documentation(self) -> Dict[str, Any]:
@@ -165,7 +179,7 @@ class CacheManager:
 
                     # Initialize documentation as a structured list
                     documentation = []
-                    current_subsection: DocumentationSection | None = None
+                    current_subsection: Optional[SubSection] = None
                     general_content = []
                     options_content = []
 
@@ -187,7 +201,7 @@ class CacheManager:
                         elif next_elem.name in ['p', 'pre', 'ul', 'ol']:
                             text = self.clean_text(next_elem.get_text(strip=True))
                             if current_subsection:
-                                current_subsection["content"].append(text)
+                                current_subsection.setdefault("content", []).append(text)
                             else:
                                 general_content.append(text)
 
@@ -241,7 +255,7 @@ class CacheManager:
                     )
 
                     documentation = []
-                    current_subsection: Dict[str, Any] | None = None
+                    current_subsection: Optional[SubSection] = None
                     general_content = []
 
                     next_elem = section.find_next_sibling()
@@ -264,12 +278,12 @@ class CacheManager:
                             else:
                                 general_content.append(text)
 
-                        elif next_elem.name == "div" and "highlight" in next_elem.get("class", []):
+                        elif next_elem.name == "div" and any(c in next_elem.get("class", []) for c in ["highlight", "highlight-default"]):
                             # Extract example from code block
                             pre_tag = next_elem.find("pre")
                             if pre_tag:
-                                example_text = self.clean_text(pre_tag.get_text("\n", strip=True))
-                                if current_subsection:
+                                example_text = self.clean_code(pre_tag.get_text("\n", strip=True))
+                                if current_subsection is not None:
                                     current_subsection["content"].append(f"Example:\n{example_text}")
                                 else:
                                     general_content.append(f"Example:\n{example_text}")
@@ -301,41 +315,36 @@ class CacheManager:
                 soup = BeautifulSoup(html, 'html.parser')
 
                 # Ensure we are selecting the correct container
-                content = soup.select_one('article.md-content__inner')
+                content = soup.select_one('.md-content')
 
                 if not content:
-                    print("No content found in the page!")  # Debugging log
                     return {}
 
                 elements = []
                 sections = content.find_all('h2')
 
                 if not sections:
-                    print("No sections (h2) found!")  # Debugging log
                     return {}
-
                 for section in sections:
                     resolver_name = self.clean_text(section.get_text(strip=True))
-                    print(f"Parsing section: {resolver_name}")  # Debugging log
 
                     # Try to get the description (handle cases where it's inside .admonition)
                     description = ""
                     description_elem = section.find_next_sibling()
-                    if description_elem:
-                        print(f"First sibling after {resolver_name}: {description_elem.name}")  # Debugging log
 
+                    # Look for description in all content until next h2
                     while description_elem and description_elem.name not in ['h2', 'h3', 'h4']:
                         if description_elem.name == "p":
                             description += " " + self.clean_text(description_elem.get_text(strip=True))
-                        elif "admonition" in description_elem.get("class", []):  # Handle tip boxes
+                        elif description_elem.name == "div" and "admonition" in description_elem.get("class", []):
                             description += " " + self.clean_text(description_elem.get_text(strip=True))
                         elif description_elem.name in ['ul', 'ol']:  # Handle bullet lists
                             for li in description_elem.find_all('li'):
-                                description += " - " + self.clean_text(li.get_text(strip=True))
+                                description += "\n- " + self.clean_text(li.get_text(strip=True))
                         description_elem = description_elem.find_next_sibling()
 
                     documentation = []
-                    current_subsection: Dict[str, Any] | None = None
+                    current_subsection: Optional[SubSection] = None
                     general_content = []
 
                     next_elem = section.find_next_sibling()
@@ -358,12 +367,12 @@ class CacheManager:
                             else:
                                 general_content.append(text)
 
-                        elif next_elem.name == "div" and "highlight" in next_elem.get("class", []):
+                        elif next_elem.name == "div" and any(c in next_elem.get("class", []) for c in ["highlight", "highlight-default"]):
                             # Extract example from code block
                             pre_tag = next_elem.find("pre")
                             if pre_tag:
-                                example_text = self.clean_text(pre_tag.get_text("\n", strip=True))
-                                if current_subsection:
+                                example_text = self.clean_code(pre_tag.get_text("\n", strip=True))
+                                if current_subsection is not None:
                                     current_subsection["content"].append(f"Example:\n{example_text}")
                                 else:
                                     general_content.append(f"Example:\n{example_text}")
@@ -381,8 +390,6 @@ class CacheManager:
                         "documentation": documentation
                     })
 
-                if not elements:
-                    print("No elements were added to the JSON!")  # Debugging log
 
                 return {
                     "type": "documentation_section",

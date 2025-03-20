@@ -15,7 +15,7 @@ async def list_doc_tools() -> list[Tool]:
                 "properties": {
                     "section": {
                         "type": "string",
-                        "enum": ["cli", "settings", "resolver", "versioning"],
+                        "enum": ["cli", "settings", "resolver"],
                         "description": "Documentation section"
                     },
                     "element": {
